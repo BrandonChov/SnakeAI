@@ -16,15 +16,19 @@ class Linear_QNet(nn.Module):
         return x
 
     def save(self, file_name='model.pth'):
-        model_folder_path = './model'
-        if not os.path.exists(model_folder_path):
-            os.makedirs(model_folder_path)
+        dir_name = os.path.dirname(file_name)
+        if dir_name and not os.path.exists(dir_name):
+            os.makedirs(dir_name)
 
-        file_name = os.path.join(model_folder_path, file_name)
+        print(f"Saving model to: {file_name}")  
         torch.save(self.state_dict(), file_name)
-    def load(self, filename="model.pth"):
-        self.load_state_dict(torch.load(filename))  
-        self.eval()  
+    def load(self, file_name='model.pth'):
+        if not os.path.exists(file_name):
+            raise FileNotFoundError(f"No model found at {file_name}")
+        self.load_state_dict(torch.load(file_name))
+        self.eval()
+
+ 
 
 
 class QTrainer:
@@ -35,38 +39,35 @@ class QTrainer:
         self.optimizer = optim.Adam(model.parameters(), lr=self.lr)
         self.criterion = nn.MSELoss()
 
-    def train_step(self, state, action, reward, next_state, done):
+    def train_step(self, state, action, reward, survival_reward, next_state, done):
         state = torch.tensor(state, dtype=torch.float)
         next_state = torch.tensor(next_state, dtype=torch.float)
         action = torch.tensor(action, dtype=torch.long)
         reward = torch.tensor(reward, dtype=torch.float)
-        # (n, x)
+        survival_reward = torch.tensor(survival_reward, dtype=torch.float)
+   
 
         if len(state.shape) == 1:
-            # (1, x)
+      
             state = torch.unsqueeze(state, 0)
             next_state = torch.unsqueeze(next_state, 0)
             action = torch.unsqueeze(action, 0)
             reward = torch.unsqueeze(reward, 0)
+            survival_reward = torch.unsqueeze(survival_reward, 0) 
             done = (done, )
 
-      
         pred = self.model(state)
 
         target = pred.clone()
         for idx in range(len(done)):
-            Q_new = reward[idx]
+            Q_new = reward[idx] + survival_reward[idx] 
             if not done[idx]:
-                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
+                Q_new = reward[idx] + survival_reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
 
             target[idx][torch.argmax(action[idx]).item()] = Q_new
     
-   
         self.optimizer.zero_grad()
         loss = self.criterion(target, pred)
         loss.backward()
 
         self.optimizer.step()
-
-
-
